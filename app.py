@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 # PASTE YOUR TOKEN HERE
 BOT_TOKEN = "8633914734:AAHCb01yBMbZd1Cpamcm6BNvsBTOaysGM3Y" 
 PORT = int(os.environ.get("PORT", 8080))
-HERO_PHOTO = "AgACAgIAAxkBAAIBYmR4X1kAAYtQzVb3EXAMPLE_PHOTO_ID_HERE"
+
+# Your uploaded image direct link
+HERO_PHOTO = "https://i.ibb.co/VcsGwvx8/IMG-20260306-WA0003.jpg"
 GROUP_LINK = "https://t.me/hongdongofficial"
 
 # ── Flask Server (Required for Render & UptimeRobot) ─────────────────────────
@@ -27,7 +29,6 @@ def health():
     return "Bot is alive! 🚀", 200
 
 def run_flask():
-    # Render binds to 0.0.0.0 and the PORT variable
     flask_app.run(host="0.0.0.0", port=PORT)
 
 # ── Captions ─────────────────────────────────────────────────────────────────
@@ -112,15 +113,32 @@ def kb_chain_back(chain_label: str):
 
 # ── Core edit helper ─────────────────────────────────────────────────────────
 async def refresh_screen(query, caption: str, keyboard: InlineKeyboardMarkup):
-    media = InputMediaPhoto(media=HERO_PHOTO, caption=caption, parse_mode="HTML")
     try:
+        media = InputMediaPhoto(media=HERO_PHOTO, caption=caption, parse_mode="HTML")
         await query.edit_message_media(media=media, reply_markup=keyboard)
     except Exception:
-        await query.message.reply_photo(photo=HERO_PHOTO, caption=caption, parse_mode="HTML", reply_markup=keyboard)
+        # If photo link fails, edit current message as TEXT only
+        try:
+            await query.edit_message_text(text=caption, parse_mode="HTML", reply_markup=keyboard)
+        except Exception as e:
+            logger.error(f"Refresh screen failed: {e}")
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_photo(photo=HERO_PHOTO, caption=WELCOME_CAPTION, parse_mode="HTML", reply_markup=kb_main())
+    try:
+        await update.message.reply_photo(
+            photo=HERO_PHOTO, 
+            caption=WELCOME_CAPTION, 
+            parse_mode="HTML", 
+            reply_markup=kb_main()
+        )
+    except Exception:
+        # Fallback to text if the image link is blocked or broken
+        await update.message.reply_text(
+            text=WELCOME_CAPTION, 
+            parse_mode="HTML", 
+            reply_markup=kb_main()
+        )
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(HELP_TEXT, parse_mode="HTML")
@@ -155,16 +173,29 @@ async def collect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("pending_chain", None)
 
     conf = f"✅ <b>LINKED!</b>\n⛓️ <b>Chain:</b> {chain}\n💼 <b>Address:</b> <code>{wallet}</code>"
-    await update.message.reply_photo(photo=HERO_PHOTO, caption=conf, parse_mode="HTML", reply_markup=kb_back())
+    
+    try:
+        await update.message.reply_photo(photo=HERO_PHOTO, caption=conf, parse_mode="HTML", reply_markup=kb_back())
+    except Exception:
+        await update.message.reply_text(text=conf, parse_mode="HTML", reply_markup=kb_back())
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
     threading.Thread(target=run_flask, daemon=True).start()
+    
+    # Verify BOT_TOKEN is not default
+    if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        logger.error("PLEASE SET YOUR BOT_TOKEN IN THE CODE!")
+        return
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(route_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, collect_wallet))
+    
+    logger.info("Bot is starting...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
